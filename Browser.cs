@@ -6,6 +6,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -43,8 +44,12 @@ namespace FavCat_Browser
 
         private static readonly int MaxEntries = 500;
 
+        private HttpClient client = new ();
+
         private void LoadContents(int Offset = 0)
         {
+            ButtonAssoc.Clear();
+
             flowLayoutPanel1.Enabled = false;
 
             foreach (Control control in flowLayoutPanel1.Controls)
@@ -213,28 +218,26 @@ namespace FavCat_Browser
                                 break;
                             }
 
-                            try
+                            Task.Run(async () =>
                             {
-                                var Attempts = 0;
-
-                                void Attempt()
+                                try
                                 {
-                                    using var client = new WebClient();
+                                    var data = await client.GetByteArrayAsync(new Uri(ImageURL));
 
-                                    client.DownloadDataAsync(new Uri(ImageURL));
-
-                                    client.DownloadDataCompleted += (_, b) =>
+                                    MainThreadActionsToCall.Add(() =>
                                     {
-                                        if (flowLayoutPanel1.Controls.Count >= MaxEntries)
-                                        {
-                                            MakeNext();
-
-                                            return;
-                                        }
-
                                         try
                                         {
-                                            var image = (Bitmap)Image.FromStream(new MemoryStream(b.Result));
+                                            if (flowLayoutPanel1.Controls.Count >= MaxEntries)
+                                            {
+                                                client.CancelPendingRequests();
+
+                                                MakeNext();
+
+                                                return;
+                                            }
+
+                                            var image = (Bitmap)Image.FromStream(new MemoryStream(data));
 
                                             var button = new Button
                                             {
@@ -253,32 +256,18 @@ namespace FavCat_Browser
                                             flowLayoutPanel1.Controls.Add(button);
 
                                             ButtonAssoc[button.Name] = entry;
-
                                         }
                                         catch
                                         {
-                                            Attempts++;
-
-                                            if (Attempts < 10)
-                                            {
-                                                QueuedActions.Add(() =>
-                                                {
-                                                    Attempt();
-                                                });
-                                            }
-                                            else
-                                            {
-                                                MessageBox.Show($"Retry Attempt Limit Reached For Image URL: {ImageURL}");
-                                            }
+                                            
                                         }
-                                    };
+                                    });
                                 }
-
-                                Attempt();
-                            }
-                            catch
-                            {
-                            }
+                                catch// (Exception ex)
+                                {
+                                    //MessageBox.Show(ex.ToString());
+                                }
+                            });
                         }
                         catch
                         {
@@ -572,20 +561,32 @@ namespace FavCat_Browser
             Environment.Exit(0);
         }
 
-        private List<Action> QueuedActions = new ();
+        private void Browser_Load(object sender, EventArgs e)
+        {
+            client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36");
+        }
+
+        private List<Action> MainThreadActionsToCall = new();
+        private bool TimerLock = false;
 
         private void timer1_Tick(object sender, EventArgs e)
         {
-            if (QueuedActions.Count > 0)
+            if (TimerLock)
             {
-                QueuedActions.First()?.Invoke();
-                QueuedActions.Remove(QueuedActions.First());
+                return;
             }
-        }
 
-        private void Browser_Load(object sender, EventArgs e)
-        {
-            timer1.Start();
+            TimerLock = true;
+
+            Text = "FavCat Browser: " + flowLayoutPanel1.Controls.Count;
+
+            if (MainThreadActionsToCall.Count > 0)
+            {
+                MainThreadActionsToCall[0]?.Invoke();
+                MainThreadActionsToCall.RemoveAt(0);
+            }
+
+            TimerLock = false;
         }
     }
 }
