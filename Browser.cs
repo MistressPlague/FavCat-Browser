@@ -44,8 +44,6 @@ namespace FavCat_Browser
 
         private static readonly int MaxEntries = 500;
 
-        private HttpClient client = new ();
-
         private void LoadContents(int Offset = 0)
         {
             ButtonAssoc.Clear();
@@ -209,69 +207,61 @@ namespace FavCat_Browser
 
                     if (!string.IsNullOrEmpty(ImageURL))
                     {
+                        if (flowLayoutPanel1.Controls.Count >= MaxEntries)
+                        {
+                            MakeNext();
+
+                            break;
+                        }
+
                         try
                         {
-                            if (flowLayoutPanel1.Controls.Count >= MaxEntries)
-                            {
-                                MakeNext();
+                            using var client = new WebClient();
 
-                                break;
-                            }
+                            client.Headers["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36";
 
-                            Task.Run(async () =>
+                            client.DownloadDataAsync(new Uri(ImageURL));
+
+                            client.DownloadDataCompleted += (_, d) =>
                             {
                                 try
                                 {
-                                    var data = await client.GetByteArrayAsync(new Uri(ImageURL));
-
-                                    MainThreadActionsToCall.Add(() =>
+                                    if (flowLayoutPanel1.Controls.Count >= MaxEntries)
                                     {
-                                        try
-                                        {
-                                            if (flowLayoutPanel1.Controls.Count >= MaxEntries)
-                                            {
-                                                client.CancelPendingRequests();
+                                        MakeNext();
 
-                                                MakeNext();
+                                        return;
+                                    }
 
-                                                return;
-                                            }
+                                    var image = d.Result.Length <= (1024 * 2048) ? (Bitmap)Image.FromStream(new MemoryStream(d.Result)) : null;
 
-                                            var image = (Bitmap)Image.FromStream(new MemoryStream(data));
+                                    var button = new Button
+                                    {
+                                        BackgroundImageLayout = ImageLayout.Stretch,
+                                        TextAlign = ContentAlignment.BottomCenter,
+                                        Size = new Size(162, 162),
+                                        FlatStyle = FlatStyle.Flat,
+                                        ForeColor = entry.Platform.Contains("windows") ? Color.Magenta : Color.Yellow,
+                                        BackColor = Color.Black,
+                                        BackgroundImage = image,
+                                        Text = entry.Name,
+                                    };
 
-                                            var button = new Button
-                                            {
-                                                BackgroundImageLayout = ImageLayout.Stretch,
-                                                TextAlign = ContentAlignment.BottomCenter,
-                                                Size = new Size(162, 162),
-                                                FlatStyle = FlatStyle.Flat,
-                                                ForeColor = entry.Platform.Contains("windows") ? Color.Magenta : Color.Yellow,
-                                                BackColor = Color.Black,
-                                                BackgroundImage = image,
-                                                Text = entry.Name,
-                                            };
+                                    button.Click += button1_Click;
 
-                                            button.Click += button1_Click;
+                                    flowLayoutPanel1.Controls.Add(button);
 
-                                            flowLayoutPanel1.Controls.Add(button);
-
-                                            ButtonAssoc[button.Name] = entry;
-                                        }
-                                        catch
-                                        {
-                                            
-                                        }
-                                    });
+                                    ButtonAssoc[button.Name] = entry;
                                 }
-                                catch// (Exception ex)
+                                catch
                                 {
-                                    //MessageBox.Show(ex.ToString());
+
                                 }
-                            });
+                            };
                         }
-                        catch
+                        catch// (Exception ex)
                         {
-                            
+                            //MessageBox.Show(ex.ToString());
                         }
                     }
 
@@ -563,7 +553,6 @@ namespace FavCat_Browser
 
         private void Browser_Load(object sender, EventArgs e)
         {
-            client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/103.0.0.0 Safari/537.36");
         }
 
         private List<Action> MainThreadActionsToCall = new();
